@@ -2,6 +2,7 @@
 # Async St7789 driver for the Pi Pico (rp2040/rp235x) based on Embassy async implementation
 https://github.com/user-attachments/assets/5233a544-aacb-490f-b410-c79cc7486b45
 
+### ADAPTED FROM [ri-char/rp2040-st7789](https://github.com/ri-char/rp2040-st7789)
 
 This is a lightweight async Rust driver for Raspberry Pi Pico (1 & 2), adapted for [Rust embassy](https://github.com/embassy-rs/embassy/)' async SPI implementation.<br>
 
@@ -29,8 +30,8 @@ embassy-rp-st7789 = { version = "0.1.0", features = ["rp235xa"], git = "https://
 ## Font
 
 The project contains two fonts and 6 different sizes each type.
-
 You can add your own font by implementing `trait Font`.
+
 
 ## Example
 
