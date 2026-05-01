@@ -1,3 +1,9 @@
+# rp2040/rp2350-st7789 driver for Rust Embassy
+
+WORK IN PROGRESS. 
+
+
+Original readme:
 # rp2040-st7789 driver
 
 This is a rust driver for ST7789 on pico.It mainly based on [rp-rs/rp-hal](https://github.com/rp-rs/rp-hal).
