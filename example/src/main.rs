@@ -9,7 +9,7 @@ use embassy_rp::peripherals::{DMA_CH0};
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp_st7789::st7789::{ST7789Display, Rotation, NoPin};
 use embassy_time::Timer;
-
+use defmt::*;
 use {defmt_rtt as _, panic_probe as _};
 
 
@@ -37,7 +37,8 @@ async fn main(_spawner: Spawner)
     let cs_pin    = Output::new(p.PIN_17, Level::High);
     let bl_pin    = Output::new(p.PIN_22, Level::High);
  
-    let mut display = ST7789Display::new(reset_pin, dc_pin, cs_pin, bl_pin, spi, 240, 240, Rotation::Landscape).await.unwrap();
+    let mut display = ST7789Display::new(reset_pin, dc_pin, cs_pin, bl_pin, spi, 240, 240, Rotation::Landscape).await
+                        .expect("Critical: Could not init display!");
  
     display.fill(0).await.unwrap();
  
@@ -49,7 +50,11 @@ async fn main(_spawner: Spawner)
     {
         let start = n*bytes_per_frame;
         let stop  = (n+1)*bytes_per_frame;
-        display.draw_color_buf_raw(&cat_gif[start..stop], 0, 0, NYAN_WIDTH, NYAN_HEIGTH).await.unwrap();
+        if let Err(e) = display.draw_color_buf_raw(&cat_gif[start..stop], 0, 0, NYAN_WIDTH, NYAN_HEIGTH).await
+        {
+            error!("Could not send data to display: {:?}", e);
+            return;
+        }
 
         n = (n + 1)%frames;
         Timer::after_millis(50).await;  
