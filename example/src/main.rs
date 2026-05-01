@@ -31,7 +31,7 @@ async fn main(_spawner: Spawner)
 
     let spi = Spi::new_txonly(p.SPI0, p.PIN_18, p.PIN_19, p.DMA_CH0, Irqs, config);
  
-    let cat_gif = include_bytes!("../../../gifs_to_bin/nyan_220x220_frames=17.bin"); 
+    let cat_gif = include_bytes!("../gifs_to_bin/nyan_220x220_frames=17.bin"); 
     let reset_pin = NoPin::new();
     let dc_pin    = Output::new(p.PIN_20, Level::High);
     let cs_pin    = Output::new(p.PIN_17, Level::High);

@@ -11,8 +11,14 @@ crate-type = ["lib"]
 doc = true
 path = "src/lib.rs"
 
+
+
 [dependencies]
 cortex-m = "0.7.6"
-embassy-embedded-hal = { version = "0.6.0",  features = ["defmt"] }
-embassy-time = { version = "0.5.1",  features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-rp = { version = "0.10.0",  features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa", "binary-info"] }
+embassy-embedded-hal = { version = "0.6.0"}
+embassy-time = { version = "0.5.1"}
+embassy-rp = { version = "0.10.0" }
+
+[features]
+rp2040  = ["embassy-rp/rp2040", "embassy-rp/time-driver", "embassy-rp/critical-section-impl"]
+rp235xa = ["embassy-rp/rp235xa", "embassy-rp/time-driver", "embassy-rp/critical-section-impl"]
