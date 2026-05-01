@@ -1,18 +1,47 @@
+// ADAPTED FROM https://github.com/ri-char/rp2040-st7789
+#![allow(dead_code)]
+
+
+
+
 use core::mem;
 use core::ops::BitOr;
+use embassy_rp::gpio::{Output};
+use embassy_rp::spi::{self, Async, Spi};
 
-use rp_pico::hal as hal;
-
-use cortex_m::delay::Delay;
-use embedded_hal::digital::v2::OutputPin;
-use embedded_hal::prelude::_embedded_hal_blocking_spi_Write;
-use hal::gpio::{Pin, PinId, PushPullOutput};
-use hal::spi::{Enabled, SpiDevice};
-use hal::typelevel::NoneT;
+use embassy_time::{Timer};
 use crate::font::Font;
+ 
+ 
+#[repr(u8)]
+#[allow(dead_code)]
+pub enum Rotation {
+    Portrait = 0,
+    Landscape = 0x60,
+    InvertedPortrait = 0xC0,
+    InvertedLandscape = 0xA0,
+}
 
 #[repr(u8)]
 #[allow(dead_code)]
+pub enum ColorMode {
+    ColorMode65k = 0x50,
+    ColorMode262k = 0x60,
+    ColorMode12bit = 0x03,
+    ColorMode16bit = 0x05,
+    ColorMode18bit = 0x06,
+    ColorMode16m = 0x07,
+}
+
+impl BitOr for ColorMode {
+    type Output = u8;
+    fn bitor(self, rhs: Self) -> Self::Output {
+        self as u8 | rhs as u8
+    }
+}
+
+
+#[repr(u8)]
 pub enum Command {
     Nop = 0x00,
     Swreset = 0x01,
@@ -37,67 +66,48 @@ pub enum Command {
     Vscsad = 0x37,
 }
 
-#[repr(u8)]
-#[allow(dead_code)]
-pub enum Madctl {
-    MY = 0x80,
-    MX = 0x40,
-    MV = 0x20,
-    ML = 0x10,
-    BGR = 0x08,
-    MH = 0x04,
-    RGB = 0x00,
-}
-
-#[repr(u8)]
-#[allow(dead_code)]
-pub enum ColorMode {
-    ColorMode65k = 0x50,
-    ColorMode262k = 0x60,
-    ColorMode12bit = 0x03,
-    ColorMode16bit = 0x05,
-    ColorMode18bit = 0x06,
-    ColorMode16m = 0x07,
-}
-
-#[repr(u8)]
-#[allow(dead_code)]
-pub enum Rotation {
-    Portrait = 0,
-    Landscape = 0x60,
-    InvertedPortrait = 0xC0,
-    InvertedLandscape = 0xA0,
-}
-
-impl BitOr for ColorMode {
-    type Output = u8;
-    fn bitor(self, rhs: Self) -> Self::Output {
-        self as u8 | rhs as u8
-    }
-}
-
-fn abs(x: i16) -> i16 {
-    if x < 0 {
-        -x
-    } else {
-        x
-    }
-}
-
-/// OptionalOutputPin is used to implement some optional output pins.
-pub trait OptionalOutputPin {
+pub trait OptionalOutput
+{
     /// Set the output pin to the specified value.
     fn set(&mut self, value: bool);
     /// Return whether the output pin is none.
     fn is_none(&self) -> bool;
 }
+#[derive(Clone,Copy)]
+pub struct NoPin{}
+impl NoPin
+{
+    pub fn new() -> Self 
+    {
+        Self{}
+    }
+}
 
-impl<L: PinId> OptionalOutputPin for Pin<L, PushPullOutput> {
-    fn set(&mut self, value: bool) {
-        if value {
-            self.set_high().unwrap();
-        } else {
-            self.set_low().unwrap();
+ 
+
+impl OptionalOutput for NoPin
+{
+    fn set(&mut self, _value: bool) 
+    {
+    }
+
+    fn is_none(&self) -> bool {
+        true
+    }
+}
+ 
+
+impl<'a> OptionalOutput for Output<'a>
+{
+    fn set(&mut self, value: bool) 
+    {
+        if value 
+        {
+            self.set_high();
+        }
+        else 
+        {
+            self.set_low();
         }
     }
 
@@ -106,58 +116,48 @@ impl<L: PinId> OptionalOutputPin for Pin<L, PushPullOutput> {
     }
 }
 
-impl OptionalOutputPin for NoneT {
-    fn set(&mut self, _: bool) {}
-    fn is_none(&self) -> bool {
-        true
-    }
-}
 
-/// The ST7789 display driver.
-pub struct ST7789Display<
-    K: OptionalOutputPin,
-    L: PinId,
-    M: OptionalOutputPin,
-    N: OptionalOutputPin,
-    S: SpiDevice
+pub struct ST7789Display<'a,
+    K: OptionalOutput,
+    // L: PinId,
+    M: OptionalOutput,
+    N: OptionalOutput,
+    T: spi::Instance
 > {
     /// Reset
     reset_pin: K,
     /// Data/Command
-    dc_pin: Pin<L, PushPullOutput>,
+    dc_pin: Output<'a>,
     /// Chip select
     cs_pin: M,
     /// Backlight
     bl_pin: N,
     /// SPI
-    spi: hal::spi::Spi<Enabled, S, 8>,
+    spi: Spi<'a, T, Async>,
     /// the width of the display in pixels
     width: u16,
     /// the height of the display in pixels
     height: u16,
 }
+const BUFFER_SIZE: u16 = 4096;
 
-const BUFFER_SIZE: u16 = 512;
-
-#[allow(dead_code)]
-impl<K: OptionalOutputPin, L: PinId, M: OptionalOutputPin, N: OptionalOutputPin, S: SpiDevice> ST7789Display<K, L, M, N, S> {
-    /// Creates a new display driver.
-    pub fn new(
+impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instance>  ST7789Display<'a,K,M,N,T>
+{
+    pub async fn new(
         // Reset
         reset_pin: K,
         // Data/Command
-        dc_pin: Pin<L, PushPullOutput>,
+        dc_pin: Output<'a>,
         // Chip select
         cs_pin: M,
         // Backlight
         bl_pin: N,
         // SPI
-        spi: hal::spi::Spi<Enabled, S, 8>,
+        spi: Spi<'a, T, Async>,
         width: u16,
         height: u16,
-        rotation: Rotation,
-        delay: &mut Delay,
-    ) -> Self
+        rotation: Rotation
+    ) -> Result<Self,spi::Error>
     {
         let mut i = Self {
             reset_pin,
@@ -169,141 +169,221 @@ impl<K: OptionalOutputPin, L: PinId, M: OptionalOutputPin, N: OptionalOutputPin,
             height,
         };
 
-        i.hard_reset(delay);
-        i.soft_reset(delay);
-        i.set_sleep_mode(false);
-        i.set_color_mode(ColorMode::ColorMode65k | ColorMode::ColorMode16bit);
-        delay.delay_ms(50);
-        i.set_rotation(rotation);
-        i.set_inversion_mode(true);
-        delay.delay_ms(10);
-        i.send_command(Command::Noron);
-        delay.delay_ms(10);
-        i.bl_pin.set(true);
-        i.fill(0);
-        i.send_command(Command::Dispon);
-        delay.delay_ms(500);
-        i
+        i.hard_reset().await;
+        i.soft_reset().await?;
+        i.set_sleep_mode(false).await?;
+        i.set_color_mode(ColorMode::ColorMode65k | ColorMode::ColorMode16bit).await?;
+        Timer::after_millis(50).await;  
+        i.set_rotation(rotation).await?;
+        i.set_inversion_mode(true).await?;
+        Timer::after_millis(10).await;  
+        i.send_command(Command::Noron).await?;
+        Timer::after_millis(10).await;  
+        i.fill(0).await?;
+        i.send_command(Command::Dispon).await?;
+        i.set_backlight(true);
+        Timer::after_millis(500).await;  
+        Ok(i)
     }
-
-    /// Reset the display by resetting the reset pin.
-    /// It will be called automatically when created.
-    /// It is usually called before `soft_reset`.
-    pub fn hard_reset(&mut self, delay: &mut Delay) {
-        if self.reset_pin.is_none() {
+    pub fn set_backlight(&mut self, val: bool)
+    {
+        self.bl_pin.set(val);
+    }
+    pub async fn hard_reset(&mut self)
+    {
+        if self.reset_pin.is_none()
+        {
             return;
         }
         self.cs_pin.set(false);
         self.reset_pin.set(true);
-        delay.delay_ms(50);
+        Timer::after_millis(50).await;
         self.reset_pin.set(false);
-        delay.delay_ms(50);
+        Timer::after_millis(50).await;  
         self.reset_pin.set(true);
-        delay.delay_ms(150);
+        Timer::after_millis(150).await;
         self.cs_pin.set(true);
     }
-
     /// Write Spi command to the display.
-    pub fn send_command(&mut self, command: Command) {
+    pub async fn send_command(&mut self, command: Command) -> Result<(),spi::Error>
+    {
         self.cs_pin.set(false);
-        self.dc_pin.set_low().unwrap();
-        self.spi.write(&[command as u8]).unwrap();
+        self.dc_pin.set_low();
+        self.spi.write(&[command as u8]).await?;
         self.cs_pin.set(true);
+        Ok(())
     }
-
+    #[inline(always)]
+    pub async fn send_command_no_cs(&mut self, command: Command) -> Result<(),spi::Error>
+    {
+        self.dc_pin.set_low();
+        self.spi.write(&[command as u8]).await?;
+        Ok(())
+    }
     /// Write Spi data to the display.
-    pub fn send_data(&mut self, data: &[u8]) {
+    pub async fn send_data(&mut self, data: &[u8]) -> Result<(),spi::Error>
+    {
         self.cs_pin.set(false);
-        self.dc_pin.set_high().unwrap();
-        self.spi.write(data).unwrap();
+        self.dc_pin.set_high();
+        self.spi.write(data).await?;
         self.cs_pin.set(true);
+        Ok(())
+    }
+    
+    pub async fn send_command_data(&mut self, command: Command, data: &[u8]) -> Result<(),spi::Error>
+    {
+        self.cs_pin.set(false);
+        self.dc_pin.set_low();
+        self.spi.write(&[command as u8]).await?;
+        self.dc_pin.set_high();
+        self.spi.write(data).await?;
+        self.cs_pin.set(true);
+        Ok(())
+    }
+    pub async fn send_command_data_no_cs(&mut self, command: Command, data: &[u8]) -> Result<(),spi::Error>
+    {
+        self.dc_pin.set_low();
+        self.spi.write(&[command as u8]).await?;
+        self.dc_pin.set_high();
+        self.spi.write(data).await?;
+        Ok(())
     }
 
     /// Reset by sending a software reset command.
     /// It will be called automatically when created.
     /// It is usually called after `hard_reset`.
-    pub fn soft_reset(&mut self, delay: &mut Delay) {
-        self.send_command(Command::Swreset);
-        delay.delay_ms(150);
+    pub async fn soft_reset(&mut self) -> Result<(),spi::Error>
+    {
+        self.send_command(Command::Swreset).await?;
+        Timer::after_millis(150).await;
+        Ok(())
     }
-
     /// Set the display to sleep mode.
-    pub fn set_sleep_mode(&mut self, value: bool) {
-        if value {
-            self.send_command(Command::Slpin);
-        } else {
-            self.send_command(Command::Slpout);
+    pub async fn set_sleep_mode(&mut self, value: bool) -> Result<(),spi::Error>
+    {
+        if value 
+        {
+            self.send_command(Command::Slpin).await?;
         }
+        else 
+        {
+            self.send_command(Command::Slpout).await?;
+        }
+        Ok(())
     }
 
     /// Set the display to inversion mode.
-    pub fn set_inversion_mode(&mut self, value: bool) {
-        if value {
-            self.send_command(Command::Invon);
-        } else {
-            self.send_command(Command::Invoff);
+    pub async fn set_inversion_mode(&mut self, value: bool)  -> Result<(),spi::Error>
+    {
+        if value 
+        {
+            self.send_command(Command::Invon).await?;
+        } 
+        else
+        {
+            self.send_command(Command::Invoff).await?;
         }
+        Ok(())
     }
 
-    /// Set the display to color mode.
-    ///
-    /// If the parameter is a single value, pass it like `ColorMode::ColorMode65k as u8`.
-    ///
-    /// If the parameter is two value, pass it like `ColorMode::ColorMode65k | ColorMode::ColorMode16bit`.
-    pub fn set_color_mode(&mut self, mode: u8) {
-        self.send_command(Command::Colmod);
-        self.send_data(&[mode]);
+        pub async fn set_color_mode(&mut self, mode: u8) -> Result<(),spi::Error>  {
+        self.send_command_data(
+            Command::Colmod,
+            &[mode]).await?;
+        // self.send_data(&[mode]).await?;
+        Ok(())
     }
 
     /// Set the display to rotation mode.
-    pub fn set_rotation(&mut self, rotation: Rotation) {
-        self.send_command(Command::Madctl);
-        self.send_data(&[rotation as u8]);
+    pub async fn set_rotation(&mut self, rotation: Rotation) -> Result<(),spi::Error> {
+        self.send_command_data(
+            Command::Madctl,
+            &[rotation as u8]).await?;
+        // self.send_data(&[rotation as u8]).await?;
+        Ok(())
     }
 
+    //  TODO: THis function is only called once in set_window; ==> remove self.cs_pin.set(false)/(true) and keep it outside
+
     /// Select columns.
-    fn set_columns(&mut self, start: u16, end: u16) {
+    async fn set_columns(&mut self, start: u16, end: u16) -> Result<(),spi::Error> {
         assert!(start <= end && end <= self.width);
-        self.send_command(Command::Caset);
-        self.send_data(&[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]);
+        self.send_command_data( 
+            Command::Caset,
+            &[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]
+        ).await?;
+        // self.send_data(&[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]).await?;
+        Ok(())
     }
 
     /// Select rows.
-    fn set_rows(&mut self, start: u16, end: u16) {
+    async fn set_rows(&mut self, start: u16, end: u16) -> Result<(),spi::Error> {
         assert!(start <= end && end <= self.height);
-        self.send_command(Command::Raset);
-        self.send_data(&[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]);
+        self.send_command_data(
+            Command::Raset,
+            &[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]).await?;
+        // self.send_data(&[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]).await?;
+        Ok(())
+    }
+    #[inline(always)]
+    async fn set_columns_no_cs(&mut self, start: u16, end: u16) -> Result<(),spi::Error> {
+        assert!(start <= end && end <= self.width);
+        self.send_command_data_no_cs( 
+            Command::Caset,
+            &[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]
+        ).await?;
+        // self.send_data(&[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]).await?;
+        Ok(())
     }
 
+    #[inline(always)]
+    async fn set_rows_no_cs(&mut self, start: u16, end: u16) -> Result<(),spi::Error> {
+        assert!(start <= end && end <= self.height);
+        self.send_command_data_no_cs(
+            Command::Raset,
+            &[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]).await?;
+        // self.send_data(&[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]).await?;
+        Ok(())
+    }
+
+
     /// Select a window.
-    fn set_window(&mut self, start_x: u16, start_y: u16, end_x: u16, end_y: u16) {
-        self.set_columns(start_x, end_x);
-        self.set_rows(start_y, end_y);
-        self.send_command(Command::Ramwr);
+    async fn set_window(&mut self, start_x: u16, start_y: u16, end_x: u16, end_y: u16)-> Result<(),spi::Error> {
+        // self.cs_pin.set(false);
+        // self.set_columns_no_cs(start_x, end_x).await?;
+        // self.set_rows_no_cs(start_y, end_y).await?;
+        // self.send_command_no_cs(Command::Ramwr).await?;
+        // self.cs_pin.set(true);
+        self.set_columns(start_x, end_x).await?;
+        self.set_rows(start_y, end_y).await?;
+        self.send_command(Command::Ramwr).await?;
+        Ok(())
     }
 
     /// Draw a vertical line.
-    pub fn draw_vertical_line(&mut self, x: u16, y: u16, length: u16, color: u16) {
-        self.draw_solid_rect(x, y, 1, length, color);
+    pub async fn draw_vertical_line(&mut self, x: u16, y: u16, length: u16, color: u16) -> Result<(),spi::Error> {
+        self.draw_solid_rect(x, y, 1, length, color).await?;
+        Ok(())
     }
 
     /// Draw a horizontal line.
-    pub fn draw_horizontal_line(&mut self, x: u16, y: u16, length: u16, color: u16) {
-        self.draw_solid_rect(x, y, length, 1, color);
+    pub async fn draw_horizontal_line(&mut self, x: u16, y: u16, length: u16, color: u16)-> Result<(),spi::Error> {
+        self.draw_solid_rect(x, y, length, 1, color).await?;
+        Ok(())
     }
 
     /// Draw a single pixel.**Not recommended**.
-    pub fn pixel(&mut self, x: u16, y: u16, color: u16) {
-        self.set_window(x, y, x, y);
-        self.send_data(&[(color >> 8) as u8, (color & 0xff) as u8]);
+    pub async fn pixel(&mut self, x: u16, y: u16, color: u16)-> Result<(),spi::Error> {
+        self.set_window(x, y, x, y).await?;
+        self.send_data(&[(color >> 8) as u8, (color & 0xff) as u8]).await?;
+        Ok(())
     }
-
     /// Draw the color buffer into an area.
     ///
     /// The `bitmap` is a color array of `u16`.
-    pub fn draw_color_buf(&mut self, bitmap: &[u16], x: u16, y: u16, width: u16, height: u16) {
+    pub async fn draw_color_buf(&mut self, bitmap: &[u16], x: u16, y: u16, width: u16, height: u16) -> Result<(),spi::Error>  {
         assert_eq!(bitmap.len(), width as usize * height as usize);
-        self.set_window(x, y, x + width - 1, y + height - 1);
+        self.set_window(x, y, x + width - 1, y + height - 1).await?;
         let chunks = (width * height) / BUFFER_SIZE;
         let rest = (width * height) % BUFFER_SIZE;
 
@@ -312,74 +392,79 @@ impl<K: OptionalOutputPin, L: PinId, M: OptionalOutputPin, N: OptionalOutputPin,
         let mut index = 0;
         for _ in 0..chunks {
             for i in 0..BUFFER_SIZE {
-                buf[i as usize * 2] = (bitmap[index] >> 8) as u8;
+                buf[i as usize * 2]     = (bitmap[index] >> 8) as u8;
                 buf[i as usize * 2 + 1] = (bitmap[index] & 0xff) as u8;
                 index += 1;
             }
-            self.send_data(buf);
+            self.send_data(buf).await?;
         }
         if rest > 0 {
             for i in 0..rest {
-                buf[i as usize * 2] = (bitmap[index] >> 8) as u8;
+                buf[i as usize * 2]     = (bitmap[index] >> 8) as u8;
                 buf[i as usize * 2 + 1] = (bitmap[index] & 0xff) as u8;
                 index += 1;
             }
-            self.send_data(&buf[0..2 * rest as usize]);
+            self.send_data(&buf[0..2 * rest as usize]).await?;
         }
+        Ok(())
     }
 
 
     /// Draw the raw color buffer into an area.
     ///
     /// The `buf` is a color array of `u8` which encoded with big-endian.
-    pub fn draw_color_buf_raw(&mut self, buffer: &[u8], x: u16, y: u16, width: u16, height: u16) {
+    pub async fn draw_color_buf_raw(&mut self, buffer: &[u8], x: u16, y: u16, width: u16, height: u16) -> Result<(),spi::Error>   {
         assert_eq!(buffer.len(), width as usize * height as usize * 2);
-        self.set_window(x, y, x + width - 1, y + height - 1);
-        self.send_data(buffer);
+        self.set_window(x, y, x + width - 1, y + height - 1).await?;
+        self.send_data(buffer).await?;
+        Ok(())
     }
 
     /// Draw a solid rectangle.
-    pub fn draw_solid_rect(&mut self, x: u16, y: u16, width: u16, height: u16, color: u16) {
-        self.set_window(x, y, x + width - 1, y + height - 1);
+    pub async fn draw_solid_rect(&mut self, x: u16, y: u16, width: u16, height: u16, color: u16) -> Result<(),spi::Error>   {
+        self.set_window(x, y, x + width - 1, y + height - 1).await?;
         let pixel: [u8; 2] = [(color >> 8) as u8, (color & 0xff) as u8];
         let chunks = (width * height) / BUFFER_SIZE;
-        let rest = (width * height) % BUFFER_SIZE;
+        let rest   = (width * height) % BUFFER_SIZE;
 
         let buf: &mut [u8] = &mut [0u8; BUFFER_SIZE as usize * 2];
         for i in 0..BUFFER_SIZE {
-            buf[i as usize * 2] = pixel[0];
+            buf[i as usize * 2]     = pixel[0];
             buf[i as usize * 2 + 1] = pixel[1];
         }
 
         for _ in 0..chunks {
-            self.send_data(buf);
+            self.send_data(buf).await?;
         }
         if rest > 0 {
-            self.send_data(&buf[0..2 * rest as usize]);
+            self.send_data(&buf[0..2 * rest as usize]).await?;
         }
+        Ok(())
     }
 
     /// Fill the screen with a color.
-    pub fn fill(&mut self, color: u16) {
-        self.draw_solid_rect(0, 0, self.width, self.height, color);
+    pub async fn fill(&mut self, color: u16)-> Result<(),spi::Error> {
+        self.draw_solid_rect(0, 0, self.width, self.height, color).await?;
+        Ok(())
     }
 
     /// Draw a hollow rectangle.
-    pub fn draw_hollow_rect(&mut self, x: u16, y: u16, width: u16, height: u16, color: u16) {
-        self.draw_horizontal_line(x, y, width, color);
-        self.draw_horizontal_line(x, y + height - 1, width, color);
-        self.draw_vertical_line(x, y, height, color);
-        self.draw_vertical_line(x + width - 1, y, height, color);
+    pub async fn draw_hollow_rect(&mut self, x: u16, y: u16, width: u16, height: u16, color: u16) -> Result<(),spi::Error> {
+        self.draw_horizontal_line(x, y, width, color).await?;
+        self.draw_horizontal_line(x, y + height - 1, width, color).await?;
+        self.draw_vertical_line(x, y, height, color).await?;
+        self.draw_vertical_line(x + width - 1, y, height, color).await?;
+        Ok(())
     }
 
+    
     /// Draw a line from (x0, y0) to (x1, y1).
-    pub fn line(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) {
+    pub async fn line(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) -> Result<(),spi::Error> {
         let mut x0 = x0;
         let mut y0 = y0;
         let mut x1 = x1;
         let mut y1 = y1;
-
-        let steep = abs(y1 as i16 - y0 as i16) > abs(x1 as i16 - x0 as i16);
+        let steep = (y1 as i16 - y0 as i16).abs() > (x1 as i16 - x0 as i16).abs();
         if steep {
             mem::swap(&mut x0, &mut y0);
             mem::swap(&mut x1, &mut y1);
@@ -395,9 +480,9 @@ impl<K: OptionalOutputPin, L: PinId, M: OptionalOutputPin, N: OptionalOutputPin,
         let mut y: i16 = y0 as i16;
         for x in x0..=x1 {
             if steep {
-                self.pixel(y as u16, x as u16, 0xffff);
+                self.pixel(y as u16, x as u16, 0xffff).await?;
             } else {
-                self.pixel(x as u16, y as u16, 0xffff);
+                self.pixel(x as u16, y as u16, 0xffff).await?;
             }
             derror -= dy;
             if derror < 0 {
@@ -405,7 +490,9 @@ impl<K: OptionalOutputPin, L: PinId, M: OptionalOutputPin, N: OptionalOutputPin,
                 derror += dx;
             }
         }
+        Ok(())
     }
+
 
     /// Set Vertical Scrolling Definition.
     ///
@@ -422,11 +509,12 @@ impl<K: OptionalOutputPin, L: PinId, M: OptionalOutputPin, N: OptionalOutputPin,
     /// vsa (u16): Vertical Scrolling Area
     ///
     /// bfa (u16): Bottom Fixed Area
-    pub fn vscrdef(&mut self, tfa: u16, vsa: u16, bfa: u16) {
-        self.send_command(Command::Vscrdef);
-        self.send_data(&tfa.to_be_bytes());
-        self.send_data(&vsa.to_be_bytes());
-        self.send_data(&bfa.to_be_bytes());
+    pub async fn vscrdef(&mut self, tfa: u16, vsa: u16, bfa: u16) -> Result<(),spi::Error>  {
+        self.send_command(Command::Vscrdef).await?;
+        self.send_data(&tfa.to_be_bytes()).await?;
+        self.send_data(&vsa.to_be_bytes()).await?;
+        self.send_data(&bfa.to_be_bytes()).await?;
+        Ok(())
     }
 
     /// Set Vertical Scroll Start Address of RAM.
@@ -437,10 +525,12 @@ impl<K: OptionalOutputPin, L: PinId, M: OptionalOutputPin, N: OptionalOutputPin,
     /// Args:
     ///
     /// vssa (u16): Vertical Scrolling Start Address
-    pub fn vscsad(&mut self, vssa: u16) {
-        self.send_command(Command::Vscsad);
-        self.send_data(&vssa.to_be_bytes());
+    pub async fn vscsad(&mut self, vssa: u16) -> Result<(),spi::Error>  {
+        self.send_command(Command::Vscsad).await?;
+        self.send_data(&vssa.to_be_bytes()).await?;
+        Ok(())
     }
+
 
     /// Draw text with a specific font.
     /// `x` and `y` are the top left corner of the text.
@@ -449,7 +539,8 @@ impl<K: OptionalOutputPin, L: PinId, M: OptionalOutputPin, N: OptionalOutputPin,
     /// When meeting a newline character or reach the end of screen, the next line will be drawn.
     ///
     /// When the distance to the bottom of the screen is less than the font height, it will stop drawing.
-    pub fn draw_text(&mut self, x: u16, y: u16, text: &str, font: &dyn Font, font_color: u16, background_color: u16) -> (u16, u16) {
+    pub async fn draw_text(&mut self, x: u16, y: u16, text: &str, font: &dyn Font, font_color: u16, background_color: u16) -> Result<(u16,u16),spi::Error>
+    {
         let start_x = x;
         let mut end_x = x;
         let height = font.get_height() as u16;
@@ -466,7 +557,7 @@ impl<K: OptionalOutputPin, L: PinId, M: OptionalOutputPin, N: OptionalOutputPin,
                 x = start_x;
                 y += height;
                 if y + height > self.height as u16 {
-                    return (end_x, y);
+                    return Ok((end_x, y));
                 } else {
                     continue;
                 }
@@ -479,16 +570,17 @@ impl<K: OptionalOutputPin, L: PinId, M: OptionalOutputPin, N: OptionalOutputPin,
                     x = start_x;
                     y += height;
                     if y + height > self.height as u16 {
-                        return (end_x, y);
+                        return Ok((end_x, y));
                     }
                 }
-                self.set_window(x, y, x + w as u16 - 1, y + height - 1);
+                self.set_window(x, y, x + w as u16 - 1, y + height - 1).await?;
 
                 let mut buf_index: usize = 0;
                 for i in (0 as usize)..(w as usize * height as usize) {
-                    if buf_index == (BUFFER_SIZE * 2) as usize {
+                    if buf_index == (BUFFER_SIZE * 2) as usize 
+                    {
                         buf_index = 0;
-                        self.send_data(render_buffer);
+                        self.send_data(render_buffer).await?;
                     }
                     if buf[i >> 3] & (0x80 >> (i & 7)) != 0 {
                         render_buffer[buf_index] = (font_color >> 8) as u8;
@@ -500,11 +592,13 @@ impl<K: OptionalOutputPin, L: PinId, M: OptionalOutputPin, N: OptionalOutputPin,
                     buf_index += 2;
                 }
                 if buf_index != 0 {
-                    self.send_data(&render_buffer[0..buf_index]);
+                    self.send_data(&render_buffer[0..buf_index]).await?;
                 }
                 x += w as u16;
             }
         }
-        (end_x, y + height as u16)
+        Ok((end_x, y + height as u16))
     }
+
 }
+ 

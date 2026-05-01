@@ -2,7 +2,7 @@
 authors = ["the rp-rs team"]
 edition = "2018"
 readme = "README.md"
-name = "rp2040-st7789"
+name = "embassy-rp-st7789"
 version = "0.1.0"
 resolver = "2"
 
@@ -12,7 +12,7 @@ doc = true
 path = "src/lib.rs"
 
 [dependencies]
-cortex-m = "0.7.3"
-embedded-hal = { version = "0.2.5", features=["unproven"] }
-rp-pico = "0.2.0"
-nano-leb128 = { version = "0.1.0", default-features = false }
+cortex-m = "0.7.6"
+embassy-embedded-hal = { version = "0.6.0",  features = ["defmt"] }
+embassy-time = { version = "0.5.1",  features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-rp = { version = "0.10.0",  features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa", "binary-info"] }
