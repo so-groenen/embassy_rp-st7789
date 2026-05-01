@@ -1,9 +1,6 @@
 // ADAPTED FROM https://github.com/ri-char/rp2040-st7789
 #![allow(dead_code)]
 
-
-
-
 use core::mem;
 use core::ops::BitOr;
 use embassy_rp::gpio::{Output};
@@ -14,7 +11,6 @@ use crate::font::Font;
  
  
 #[repr(u8)]
-#[allow(dead_code)]
 pub enum Rotation {
     Portrait = 0,
     Landscape = 0x60,
@@ -23,7 +19,6 @@ pub enum Rotation {
 }
 
 #[repr(u8)]
-#[allow(dead_code)]
 pub enum ColorMode {
     ColorMode65k = 0x50,
     ColorMode262k = 0x60,
@@ -213,7 +208,9 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
         self.cs_pin.set(true);
         Ok(())
     }
+
     #[inline(always)]
+    #[cfg(feature = "keep_cs_low")]
     pub async fn send_command_no_cs(&mut self, command: Command) -> Result<(),spi::Error>
     {
         self.dc_pin.set_low();
@@ -240,6 +237,7 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
         self.cs_pin.set(true);
         Ok(())
     }
+    #[cfg(feature = "keep_cs_low")]
     pub async fn send_command_data_no_cs(&mut self, command: Command, data: &[u8]) -> Result<(),spi::Error>
     {
         self.dc_pin.set_low();
@@ -295,6 +293,7 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
     }
 
     /// Set the display to rotation mode.
+    #[inline(always)]
     pub async fn set_rotation(&mut self, rotation: Rotation) -> Result<(),spi::Error> {
         self.send_command_data(
             Command::Madctl,
@@ -303,9 +302,9 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
         Ok(())
     }
 
-    //  TODO: THis function is only called once in set_window; ==> remove self.cs_pin.set(false)/(true) and keep it outside
-
+ 
     /// Select columns.
+    #[inline(always)]
     async fn set_columns(&mut self, start: u16, end: u16) -> Result<(),spi::Error> {
         assert!(start <= end && end <= self.width);
         self.send_command_data( 
@@ -317,6 +316,7 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
     }
 
     /// Select rows.
+    #[inline(always)]
     async fn set_rows(&mut self, start: u16, end: u16) -> Result<(),spi::Error> {
         assert!(start <= end && end <= self.height);
         self.send_command_data(
@@ -326,6 +326,7 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
         Ok(())
     }
     #[inline(always)]
+    #[cfg(feature = "keep_cs_low")]
     async fn set_columns_no_cs(&mut self, start: u16, end: u16) -> Result<(),spi::Error> {
         assert!(start <= end && end <= self.width);
         self.send_command_data_no_cs( 
@@ -337,6 +338,7 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
     }
 
     #[inline(always)]
+    #[cfg(feature = "keep_cs_low")]
     async fn set_rows_no_cs(&mut self, start: u16, end: u16) -> Result<(),spi::Error> {
         assert!(start <= end && end <= self.height);
         self.send_command_data_no_cs(
@@ -347,18 +349,24 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
     }
 
 
-    /// Select a window.
+    #[cfg(feature = "keep_cs_low")]
     async fn set_window(&mut self, start_x: u16, start_y: u16, end_x: u16, end_y: u16)-> Result<(),spi::Error> {
-        // self.cs_pin.set(false);
-        // self.set_columns_no_cs(start_x, end_x).await?;
-        // self.set_rows_no_cs(start_y, end_y).await?;
-        // self.send_command_no_cs(Command::Ramwr).await?;
-        // self.cs_pin.set(true);
+        self.cs_pin.set(false);
+        self.set_columns_no_cs(start_x, end_x).await?;
+        self.set_rows_no_cs(start_y, end_y).await?;
+        self.send_command_no_cs(Command::Ramwr).await?;
+        self.cs_pin.set(true);
+        Ok(())
+    }
+
+    #[cfg(not(feature = "keep_cs_low"))]
+    async fn set_window(&mut self, start_x: u16, start_y: u16, end_x: u16, end_y: u16)-> Result<(),spi::Error> {
         self.set_columns(start_x, end_x).await?;
         self.set_rows(start_y, end_y).await?;
         self.send_command(Command::Ramwr).await?;
         Ok(())
     }
+
 
     /// Draw a vertical line.
     pub async fn draw_vertical_line(&mut self, x: u16, y: u16, length: u16, color: u16) -> Result<(),spi::Error> {
@@ -443,6 +451,7 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
     }
 
     /// Fill the screen with a color.
+    #[inline(always)]
     pub async fn fill(&mut self, color: u16)-> Result<(),spi::Error> {
         self.draw_solid_rect(0, 0, self.width, self.height, color).await?;
         Ok(())
