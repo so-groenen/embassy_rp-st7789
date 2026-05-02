@@ -1,5 +1,5 @@
 [package]
-authors = ["richar"]
+authors = ["me"]
 edition = "2018"
 name = "st7789-examples"
 version = "0.1.0"

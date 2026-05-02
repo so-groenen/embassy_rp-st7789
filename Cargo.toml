@@ -20,6 +20,6 @@ embassy-time = { version = "0.5.1"}
 embassy-rp = { version = "0.10.0" }
 
 [features]
-rp2040      = ["embassy-rp/rp2040", "embassy-rp/time-driver", "embassy-rp/critical-section-impl"]
-rp235xa     = ["embassy-rp/rp235xa", "embassy-rp/time-driver", "embassy-rp/critical-section-impl"]
+rp2040      = ["embassy-rp/rp2040", "embassy-rp/time-driver", "embassy-rp/unstable-pac" ,"embassy-rp/critical-section-impl"]
+rp235xa     = ["embassy-rp/rp235xa", "embassy-rp/time-driver", "embassy-rp/unstable-pac", "embassy-rp/critical-section-impl"]
 keep_cs_low = []
