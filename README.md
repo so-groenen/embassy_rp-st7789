@@ -1,13 +1,13 @@
 
-# Async St7789 driver for the Pi Pico (rp2040/rp235x) based on Embassy async implementation
+# Async ST7789 driver for Pi Pico (rp2040/rp235x) 
 https://github.com/user-attachments/assets/5233a544-aacb-490f-b410-c79cc7486b45
 
 ### ADAPTED FROM [ri-char/rp2040-st7789](https://github.com/ri-char/rp2040-st7789)
 
-This is a lightweight async Rust driver for Raspberry Pi Pico (1 & 2), adapted for [Rust embassy](https://github.com/embassy-rs/embassy/)' async SPI implementation.<br>
+This is a lightweight async Rust driver for the Raspberry Pi Pico chips (Pico, Pico W, Pico 2, Pico 2W), adapted using [Rust embassy](https://github.com/embassy-rs/embassy/)'s async SPI implementation.<br>
 
-The async methods allow to do some extra work while data is being transferred to the display: <br>
-On the Pi Pico, when starting a "draw" method, we can "await" and do some work while data is being processed. This is done without the need of the CPU thanks to DMA. When the DMA controller has finished sending data via SPI, an interrupt gets triggered (DMA_IRQ_0 for instance), the display draw method is ready to be polled by the embassy executor, and we are ready to start again.
+The async methods allow to do extra work while data is being transferred to the display: <br>
+On the Pi Pico, async driver methods like "draw_text", can be "awaited", meaning we can do some work while data is being processed. This is done without the need of the CPU thanks to the DMA (Direct Memory Access) controller. When the DMA controller has finished sending data via SPI to the display, an interrupt gets triggered (DMA_IRQ_0 for instance). The corresponding driver method is then ready to be polled, and marked as finished by the embassy executor, and we are ready to start sending data again.
 
 The driver support for:
 - Async operations (write) 
