@@ -40,7 +40,7 @@ async fn main(_spawner: Spawner)
     let mut display = ST7789Display::new(reset_pin, dc_pin, cs_pin, bl_pin, spi, 240, 240, Rotation::Landscape).await
                         .expect("Critical: Could not init display!");
  
-    display.fill(0).await.unwrap();
+    display.fill(colors::BLACK).await.unwrap();
  
     let frames          = 17;
     let bytes_per_frame = cat_gif.len() / frames;

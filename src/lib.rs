@@ -2,3 +2,4 @@
 pub mod st7789;
 pub mod font;
 pub mod fonts;
+pub mod colors;
