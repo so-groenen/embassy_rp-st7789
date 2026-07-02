@@ -10,7 +10,9 @@ use embassy_time::{Timer};
 use crate::font::Font;
 use crate::st7789::Rotation::{InvertedLandscape, InvertedPortrait, Landscape, Portrait};
  
- 
+const BUFFER_SIZE: u16 = 4096;
+
+
 #[repr(u8)]
 pub enum Rotation {
     Portrait = 0,
@@ -19,20 +21,6 @@ pub enum Rotation {
     InvertedLandscape = 0xA0,
 }
 
-const NON_INVERTING_ROTATION_DIFF: [u32; 3] = 
-[
-    0,
-    (Rotation::Landscape as i32- Rotation::InvertedLandscape as i32).abs() as u32, // 64
-    (Rotation::Portrait as i32- Rotation::InvertedPortrait as i32).abs() as u32,   // 192
-];
-const INVERTING_ROTATION_DIFF: [u32; 4] = 
-[
-    (Rotation::Portrait as i32 - Rotation::Landscape as i32).abs() as u32, // 96 
-    (Rotation::Landscape as i32 - Rotation::InvertedPortrait as i32).abs() as u32, // 96 
-    (Rotation::Portrait as i32 - Rotation::InvertedLandscape as i32).abs() as u32, // 160
-    (Rotation::InvertedPortrait as i32- Rotation::InvertedLandscape as i32).abs() as u32, //32     
-
-];
 
 impl Rotation 
 {
@@ -46,15 +34,6 @@ impl Rotation
             InvertedLandscape => 3,
             
         }
-    }
-    fn rotate_size(&self, old_rotation: Rotation, size: (u16,u16)) -> (u16,u16)
-    {
-        let diff =  (*self - old_rotation).abs() as u32;
-        if INVERTING_ROTATION_DIFF.contains(&diff)
-        {
-            return (size.1, size.0);
-        }
-        return size
     }
 }
 
@@ -231,6 +210,10 @@ pub struct ST7789Display<'a,
     bl_pin: N,
     /// SPI
     spi: Spi<'a, T, Async>,
+    /// Physical display width in pixels
+    display_width: u16,
+    /// Physical display height in pixels
+    display_height: u16,
     /// the width of the display in pixels
     width: u16,
     /// the height of the display in pixels
@@ -242,7 +225,6 @@ pub struct ST7789Display<'a,
     // Display rotation
     rotation: Rotation,
 }
-const BUFFER_SIZE: u16 = 4096;
 
 impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instance>  ST7789Display<'a,K,M,N,T>
 {
@@ -268,6 +250,8 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
             cs_pin,
             bl_pin,
             spi,
+            display_width: width,
+            display_height: height,
             width,
             height,
             x_offset: 0,
@@ -291,13 +275,13 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
         Timer::after_millis(500).await;  
         Ok(i)
     }
+    /// Offset is automatically set from rotation.
+    /// This function overrides the offset set from rotation.
     pub fn set_offset(&mut self, x_offset: u16, y_offset: u16)
     {
         self.x_offset = x_offset;
         self.y_offset = y_offset;
     }
- 
-
     pub fn set_backlight(&mut self, val: bool)
     {
         self.bl_pin.set(val);
@@ -411,13 +395,12 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
     }
 
     /// Set the display to rotation mode.
-    #[inline(always)]
-    pub async fn set_rotation(&mut self, rotation: Rotation) -> Result<(),spi::Error> 
+    pub async fn set_rotation(&mut self, new_rotation: Rotation) -> Result<(),spi::Error> 
     {
-        let size = (self.width, self.height);
+        let display_size = (self.display_width, self.display_height);
         
         let pixel_offset: &'static[(u16,u16);4] =  
-        match size
+        match display_size
         {
             (240,320) => &PIXEL_OFFSET_240X320,
             (170,320) => &PIXEL_OFFSET_170X320,
@@ -429,13 +412,29 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
             _ => unimplemented!("Other sizes are, afaik not manifactured???")
         };
         
-        (self.x_offset, self.y_offset) = pixel_offset[rotation.index()];
-        // (self.width, self.height)      = rotation.rotate_size(self.rotation, size);
-        self.send_command_data(Command::Madctl,&[rotation as u8]).await?;
+        (self.x_offset, self.y_offset) = pixel_offset[new_rotation.index()];
+        (self.width, self.height)      = match new_rotation
+        {
+            Portrait | InvertedPortrait   => (self.display_width, self.display_height),
+            Landscape | InvertedLandscape => (self.display_height, self.display_width),
+        };
+        
+        self.rotation = new_rotation;
+        self.send_command_data(Command::Madctl,&[new_rotation as u8]).await?;
         Ok(())
     }
-
- 
+    fn get_rotation(&self) -> Rotation
+    {
+        self.rotation
+    }
+    fn display_size(&self) -> (u16,u16)
+    {
+        (self.display_width, self.display_height)
+    }
+    fn size(&self) -> (u16,u16)
+    {
+        (self.width, self.height)
+    } 
     /// Select columns.
     #[inline(always)]
     async fn set_columns(&mut self, start: u16, end: u16) -> Result<(),spi::Error> {

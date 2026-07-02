@@ -59,8 +59,7 @@ async fn main(_spawner: Spawner)
                         .expect("Critical: Could not init display!");
     
     display.fill(colors::BLACK).await.expect("Could not fill display");
-    // display.set_offset(80, 0);
-
+ 
     let frames          = 17;
     let bytes_per_frame = cat_gif.len() / frames;
     let mut n           = 0;

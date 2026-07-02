@@ -11,8 +11,8 @@ On the Pi Pico, async driver methods like "draw_text", can be "awaited", meaning
 
 The driver support for:
 - Async operations (write) 
-- 320x240, 240x240 and 135x240 pixel displays
-- Display rotation
+- 240x320, 240x240, 170x320, 128x160, 80x160, 128X128 and 135x240 pixel displays
+- Display rotations
 - Hardware based scrolling
 - Drawing text using 8 and 16 bit wide bitmap fonts with heights that are multiples of 8. Included are 12 bitmap fonts derived from classic pc BIOS text mode fonts.
 - Drawing text using converted TrueType fonts.
