@@ -8,6 +8,7 @@ use embassy_rp::spi::{self, Async, Spi};
 
 use embassy_time::{Timer};
 use crate::font::Font;
+use crate::st7789::Rotation::{InvertedLandscape, InvertedPortrait, Landscape, Portrait};
  
  
 #[repr(u8)]
@@ -17,6 +18,104 @@ pub enum Rotation {
     InvertedPortrait = 0xC0,
     InvertedLandscape = 0xA0,
 }
+
+const NON_INVERTING_ROTATION_DIFF: [u32; 3] = 
+[
+    0,
+    (Rotation::Landscape as i32- Rotation::InvertedLandscape as i32).abs() as u32, // 64
+    (Rotation::Portrait as i32- Rotation::InvertedPortrait as i32).abs() as u32,   // 192
+];
+const INVERTING_ROTATION_DIFF: [u32; 4] = 
+[
+    (Rotation::Portrait as i32 - Rotation::Landscape as i32).abs() as u32, // 96 
+    (Rotation::Landscape as i32 - Rotation::InvertedPortrait as i32).abs() as u32, // 96 
+    (Rotation::Portrait as i32 - Rotation::InvertedLandscape as i32).abs() as u32, // 160
+    (Rotation::InvertedPortrait as i32- Rotation::InvertedLandscape as i32).abs() as u32, //32     
+
+];
+
+impl Rotation 
+{
+    fn index(&self) -> usize
+    {
+        match self 
+        {
+            Portrait => 0,
+            Landscape => 1,
+            InvertedPortrait => 2,
+            InvertedLandscape => 3,
+            
+        }
+    }
+    fn rotate_size(&self, old_rotation: Rotation, size: (u16,u16)) -> (u16,u16)
+    {
+        let diff =  (*self - old_rotation).abs() as u32;
+        if INVERTING_ROTATION_DIFF.contains(&diff)
+        {
+            return (size.1, size.0);
+        }
+        return size
+    }
+}
+
+const PIXEL_OFFSET_240X240: [(u16,u16); 4] = 
+[   /*                 (x_offset, y_offset)*/
+    /*Portrait:*/          (0,0),
+    /*Landscape:*/         (0,0),
+    /*InvertedPortrait:*/  (0, 80),
+    /*InvertedLandscape:*/ (80, 0),
+];
+
+const PIXEL_OFFSET_240X320: [(u16,u16); 4] = 
+[   /*                 (x_offset, y_offset)*/
+    /*Portrait:*/          (0,0),
+    /*Landscape:*/         (0,0),
+    /*InvertedPortrait:*/  (0, 0),
+    /*InvertedLandscape:*/ (0, 0),
+];
+
+const PIXEL_OFFSET_170X320: [(u16,u16); 4] = 
+[   /*                 (x_offset, y_offset)*/
+    /*Portrait:*/          (35,0),
+    /*Landscape:*/         (0,35),
+    /*InvertedPortrait:*/  (35,0),
+    /*InvertedLandscape:*/ (0,35),
+];
+
+const PIXEL_OFFSET_135X240: [(u16,u16); 4] = 
+[   /*                 (x_offset, y_offset)*/
+    /*Portrait:*/          (52, 40),
+    /*Landscape:*/         (40, 53),
+    /*InvertedPortrait:*/  (53, 40),
+    /*InvertedLandscape:*/ (40, 52),
+];
+
+const PIXEL_OFFSET_128X160: [(u16,u16); 4] = 
+[   /*                 (x_offset, y_offset)*/
+    /*Portrait:*/          (0,0),
+    /*Landscape:*/         (0,0),
+    /*InvertedPortrait:*/  (0,0),
+    /*InvertedLandscape:*/ (0,0),
+];
+
+const PIXEL_OFFSET_80X160: [(u16,u16); 4] = 
+[   /*                 (x_offset, y_offset)*/
+    /*Portrait:*/          (26, 1),
+    /*Landscape:*/         (1, 26),
+    /*InvertedPortrait:*/  (26, 1),
+    /*InvertedLandscape:*/ (1, 26),
+];
+
+const PIXEL_OFFSET_128X128: [(u16,u16); 4] = 
+[   /*                 (x_offset, y_offset)*/
+    /*Portrait:*/          (2, 1),
+    /*Landscape:*/         (1, 2),
+    /*InvertedPortrait:*/  (2, 3),
+    /*InvertedLandscape:*/ (3, 2),
+];
+
+
+
 
 #[repr(u8)]
 pub enum ColorMode {
@@ -34,6 +133,7 @@ impl BitOr for ColorMode {
         self as u8 | rhs as u8
     }
 }
+
 
 
 #[repr(u8)]
@@ -60,6 +160,8 @@ pub enum Command {
     Madctl = 0x36,
     Vscsad = 0x37,
 }
+
+ 
 
 pub trait OptionalOutput
 {
@@ -133,6 +235,12 @@ pub struct ST7789Display<'a,
     width: u16,
     /// the height of the display in pixels
     height: u16,
+    /// Column offset
+    x_offset: u16,
+    /// row offset
+    y_offset: u16,
+    // Display rotation
+    rotation: Rotation,
 }
 const BUFFER_SIZE: u16 = 4096;
 
@@ -162,6 +270,9 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
             spi,
             width,
             height,
+            x_offset: 0,
+            y_offset: 0,
+            rotation
         };
 
         i.hard_reset().await;
@@ -180,6 +291,13 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
         Timer::after_millis(500).await;  
         Ok(i)
     }
+    pub fn set_offset(&mut self, x_offset: u16, y_offset: u16)
+    {
+        self.x_offset = x_offset;
+        self.y_offset = y_offset;
+    }
+ 
+
     pub fn set_backlight(&mut self, val: bool)
     {
         self.bl_pin.set(val);
@@ -294,11 +412,26 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
 
     /// Set the display to rotation mode.
     #[inline(always)]
-    pub async fn set_rotation(&mut self, rotation: Rotation) -> Result<(),spi::Error> {
-        self.send_command_data(
-            Command::Madctl,
-            &[rotation as u8]).await?;
-        // self.send_data(&[rotation as u8]).await?;
+    pub async fn set_rotation(&mut self, rotation: Rotation) -> Result<(),spi::Error> 
+    {
+        let size = (self.width, self.height);
+        
+        let pixel_offset: &'static[(u16,u16);4] =  
+        match size
+        {
+            (240,320) => &PIXEL_OFFSET_240X320,
+            (170,320) => &PIXEL_OFFSET_170X320,
+            (240,240) => &PIXEL_OFFSET_240X240,
+            (135,240) => &PIXEL_OFFSET_135X240,
+            (128,160) => &PIXEL_OFFSET_128X160,
+            (80,160)  => &PIXEL_OFFSET_80X160,
+            (128,128) => &PIXEL_OFFSET_128X128,
+            _ => unimplemented!("Other sizes are, afaik not manifactured???")
+        };
+        
+        (self.x_offset, self.y_offset) = pixel_offset[rotation.index()];
+        // (self.width, self.height)      = rotation.rotate_size(self.rotation, size);
+        self.send_command_data(Command::Madctl,&[rotation as u8]).await?;
         Ok(())
     }
 
@@ -309,7 +442,7 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
         assert!(start <= end && end <= self.width);
         self.send_command_data( 
             Command::Caset,
-            &[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]
+            &[((start + self.x_offset) >> 8) as u8, ((start+self.x_offset) & 0xff) as u8, ((end+self.x_offset) >> 8) as u8, ((end+ self.x_offset) & 0xff) as u8]
         ).await?;
         // self.send_data(&[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]).await?;
         Ok(())
@@ -321,7 +454,7 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
         assert!(start <= end && end <= self.height);
         self.send_command_data(
             Command::Raset,
-            &[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]).await?;
+            &[((start + self.y_offset) >> 8) as u8, ((start + self.y_offset) & 0xff) as u8, ((end+self.y_offset) >> 8) as u8, ((end+self.y_offset) & 0xff) as u8]).await?;
         // self.send_data(&[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]).await?;
         Ok(())
     }
@@ -331,7 +464,7 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
         assert!(start <= end && end <= self.width);
         self.send_command_data_no_cs( 
             Command::Caset,
-            &[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]
+            &[((start + self.x_offset) >> 8) as u8, ((start+self.x_offset) & 0xff) as u8, ((end+self.x_offset) >> 8) as u8, ((end+ self.x_offset) & 0xff) as u8]
         ).await?;
         // self.send_data(&[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]).await?;
         Ok(())
@@ -343,7 +476,7 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
         assert!(start <= end && end <= self.height);
         self.send_command_data_no_cs(
             Command::Raset,
-            &[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]).await?;
+            &[((start + self.y_offset) >> 8) as u8, ((start + self.y_offset) & 0xff) as u8, ((end+self.y_offset) >> 8) as u8, ((end+self.y_offset) & 0xff) as u8]).await?;
         // self.send_data(&[(start >> 8) as u8, (start & 0xff) as u8, (end >> 8) as u8, (end & 0xff) as u8]).await?;
         Ok(())
     }
