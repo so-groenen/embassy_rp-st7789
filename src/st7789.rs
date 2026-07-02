@@ -38,7 +38,7 @@ impl Rotation
     }
 }
 
-const PIXEL_OFFSET_240X240: [(u16,u16); 4] = 
+const PIXEL_OFFSET_240X240: [(u8,u8); 4] = 
 [   /*                 (x_offset, y_offset)*/
     /*Portrait:*/          (0,0),
     /*Landscape:*/         (0,0),
@@ -46,7 +46,7 @@ const PIXEL_OFFSET_240X240: [(u16,u16); 4] =
     /*InvertedLandscape:*/ (80, 0),
 ];
 
-const PIXEL_OFFSET_240X320: [(u16,u16); 4] = 
+const PIXEL_OFFSET_240X320: [(u8,u8); 4] = 
 [   /*                 (x_offset, y_offset)*/
     /*Portrait:*/          (0,0),
     /*Landscape:*/         (0,0),
@@ -54,7 +54,7 @@ const PIXEL_OFFSET_240X320: [(u16,u16); 4] =
     /*InvertedLandscape:*/ (0, 0),
 ];
 
-const PIXEL_OFFSET_170X320: [(u16,u16); 4] = 
+const PIXEL_OFFSET_170X320: [(u8,u8); 4] = 
 [   /*                 (x_offset, y_offset)*/
     /*Portrait:*/          (35,0),
     /*Landscape:*/         (0,35),
@@ -62,7 +62,7 @@ const PIXEL_OFFSET_170X320: [(u16,u16); 4] =
     /*InvertedLandscape:*/ (0,35),
 ];
 
-const PIXEL_OFFSET_135X240: [(u16,u16); 4] = 
+const PIXEL_OFFSET_135X240: [(u8,u8); 4] = 
 [   /*                 (x_offset, y_offset)*/
     /*Portrait:*/          (52, 40),
     /*Landscape:*/         (40, 53),
@@ -70,7 +70,7 @@ const PIXEL_OFFSET_135X240: [(u16,u16); 4] =
     /*InvertedLandscape:*/ (40, 52),
 ];
 
-const PIXEL_OFFSET_128X160: [(u16,u16); 4] = 
+const PIXEL_OFFSET_128X160: [(u8,u8); 4] = 
 [   /*                 (x_offset, y_offset)*/
     /*Portrait:*/          (0,0),
     /*Landscape:*/         (0,0),
@@ -78,7 +78,7 @@ const PIXEL_OFFSET_128X160: [(u16,u16); 4] =
     /*InvertedLandscape:*/ (0,0),
 ];
 
-const PIXEL_OFFSET_80X160: [(u16,u16); 4] = 
+const PIXEL_OFFSET_80X160: [(u8,u8); 4] = 
 [   /*                 (x_offset, y_offset)*/
     /*Portrait:*/          (26, 1),
     /*Landscape:*/         (1, 26),
@@ -86,7 +86,7 @@ const PIXEL_OFFSET_80X160: [(u16,u16); 4] =
     /*InvertedLandscape:*/ (1, 26),
 ];
 
-const PIXEL_OFFSET_128X128: [(u16,u16); 4] = 
+const PIXEL_OFFSET_128X128: [(u8,u8); 4] = 
 [   /*                 (x_offset, y_offset)*/
     /*Portrait:*/          (2, 1),
     /*Landscape:*/         (1, 2),
@@ -400,7 +400,7 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
     {
         let display_size = (self.display_width, self.display_height);
         
-        let pixel_offset: &'static[(u16,u16);4] =  
+        let pixel_offset: &'static[(u8,u8);4] =  
         match display_size
         {
             (240,320) => &PIXEL_OFFSET_240X320,
@@ -413,7 +413,9 @@ impl<'a, K: OptionalOutput, M: OptionalOutput, N: OptionalOutput, T: spi::Instan
             _ => unimplemented!("Other sizes are, afaik not manifactured???")
         };
         
-        (self.x_offset, self.y_offset) = pixel_offset[new_rotation.index()];
+        let (x_offset, y_offset)       = pixel_offset[new_rotation.index()];
+        (self.x_offset, self.y_offset) = (x_offset as u16, y_offset as u16);
+        
         (self.width, self.height)      = match new_rotation
         {
             Portrait | InvertedPortrait   => (self.display_width, self.display_height),
