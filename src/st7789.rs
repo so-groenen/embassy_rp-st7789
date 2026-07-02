@@ -13,6 +13,7 @@ use crate::st7789::Rotation::{InvertedLandscape, InvertedPortrait, Landscape, Po
 const BUFFER_SIZE: u16 = 4096;
 
 
+#[derive(Clone, Copy)]
 #[repr(u8)]
 pub enum Rotation {
     Portrait = 0,

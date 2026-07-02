@@ -55,7 +55,7 @@ async fn main(_spawner: Spawner)
     let cs_pin = Output::new(p.PIN_5, Level::High); 
     let bl_pin = Output::new(p.PIN_4, Level::High); 
 
-    let mut display = ST7789Display::new(reset_pin, dc_pin, cs_pin, bl_pin, spi, DISPLAY_WIDTH, DISPLAY_HEIGTH, Rotation::InvertedPortrait).await
+    let mut display = ST7789Display::new(reset_pin, dc_pin, cs_pin, bl_pin, spi, DISPLAY_WIDTH, DISPLAY_HEIGTH, Rotation::Landscape).await
                         .expect("Critical: Could not init display!");
     
     display.fill(colors::BLACK).await.expect("Could not fill display");
